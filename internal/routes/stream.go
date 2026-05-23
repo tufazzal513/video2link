@@ -38,7 +38,6 @@ func getStreamRoute(ctx *gin.Context) {
 	}
 
 	var messageID int
-	var channelID int64
 	var err error
 	var file *types.File
 	worker := bot.GetNextWorker()
@@ -65,7 +64,6 @@ func getStreamRoute(ctx *gin.Context) {
 		for _, src := range sources {
 			file, err = appmanager.GetFileFromCustomChannel(ctx, worker.Client, src.ChannelID, src.MessageID)
 			if err == nil {
-				channelID = src.ChannelID
 				messageID = src.MessageID
 				break // Success! We got the file location
 			}
