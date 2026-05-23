@@ -17,4 +17,6 @@ FROM alpine:latest
 RUN apk --no-cache add ca-certificates tzdata
 
 COPY --from=builder /app/fsb /app/fsb
-ENTRYPOINT ["/app/fsb"]
+
+# বটের রান (run) কম্যান্ডটি স্বয়ংক্রিয়ভাবে এক্সিকিউট করার জন্য
+ENTRYPOINT ["/app/fsb", "run"]
