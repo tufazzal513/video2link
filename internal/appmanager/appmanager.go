@@ -2,8 +2,8 @@ package appmanager
 
 import (
 	"EverythingSuckz/fsb/config"
+	"EverythingSuckz/fsb/internal/types"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -201,8 +201,8 @@ func GetFileSourcesAndMeta(ctx context.Context, fileID string) ([]FileSource, *F
 }
 
 func GetFileFromCustomChannel(ctx context.Context, client *gotgproto.Client, channelID int64, messageID int) (*types.File, error) {
-	// standard high performance peer channel structure
-	peer := &tg.InputPeerChannel{
+	// standard high performance input channel structure
+	peer := &tg.InputChannel{
 		ChannelID: channelID,
 	}
 	
