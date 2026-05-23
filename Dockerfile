@@ -3,6 +3,7 @@ ARG TARGETOS
 ARG TARGETARCH
 WORKDIR /app
 COPY . .
+RUN go mod tidy
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /app/fsb -ldflags="-w -s" ./cmd/fsb
 
 FROM scratch
