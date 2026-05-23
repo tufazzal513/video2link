@@ -16,8 +16,6 @@ func (r *Route) Init(engine *gin.Engine) {
 	r.Engine = engine
 }
 
-import _ "EverythingSuckz/fsb/internal/appmanager" // Pre-loading appmanager setup
-
 type allRoutes struct {
 	log *zap.Logger
 }
