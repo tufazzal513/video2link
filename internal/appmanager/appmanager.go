@@ -61,18 +61,21 @@ func InitFirebase(log *zap.Logger) {
 		opt := option.WithCredentialsFile(credsFile)
 		app, err := firebase.NewApp(ctx, nil, opt)
 		if err != nil {
+			fmt.Println("FIREBASE INIT ERROR:", err) // সরাসরি কনসোলে এরর প্রিন্ট করবে
 			log.Fatal("Failed to initialize Firebase App", zap.Error(err))
 		}
 		FirebaseApp = app
 
 		fsClient, err := app.Firestore(ctx)
 		if err != nil {
+			fmt.Println("FIRESTORE INIT ERROR:", err) // সরাসরি কনসোলে এরর প্রিন্ট করবে
 			log.Fatal("Failed to initialize Firestore Client", zap.Error(err))
 		}
 		FirestoreClient = fsClient
 
 		auClient, err := app.Auth(ctx)
 		if err != nil {
+			fmt.Println("FIREBASE AUTH INIT ERROR:", err) // সরাসরি কনসোলে এরর প্রিন্ট করবে
 			log.Fatal("Failed to initialize Firebase Auth Client", zap.Error(err))
 		}
 		AuthClient = auClient
