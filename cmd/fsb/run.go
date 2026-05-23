@@ -40,6 +40,7 @@ func runApp(cmd *cobra.Command, args []string) {
 
 	mainBot, err := bot.StartClient(log)
 	if err != nil {
+		fmt.Println("CRITICAL BOT START ERROR:", err) // সরাসরি কনসোলে এরর প্রিন্ট করবে
 		log.Sugar().Fatalf("Failed to start main bot: %v", err)
 	}
 	cache.InitCache(log)
