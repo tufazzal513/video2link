@@ -36,8 +36,11 @@ func runApp(cmd *cobra.Command, args []string) {
 	utils.InitLogger(config.ValueOf.Dev)
 	log := utils.Logger
 	mainLogger := log.Named("Main")
-	mainLogger.Info("Starting server")
 	
+	// নিরাপদ কনফিগ ভেরিফিকেশন প্রিন্ট (কোনো সিক্রেট ডাটা ফাঁস করবে না)
+	fmt.Printf("TRACE: CONFIG CHECK -> API_ID: %d | API_HASH Length: %d | BOT_TOKEN Length: %d | LOG_CHANNEL: %d\n", 
+		config.ValueOf.ApiID, len(config.ValueOf.ApiHash), len(config.ValueOf.BotToken), config.ValueOf.LogChannelID)
+
 	fmt.Println("TRACE: Initializing router")
 	router := getRouter(log)
 
