@@ -1,99 +1,313 @@
-package main
+package config
 
 import (
-	"EverythingSuckz/fsb/config"
-	"EverythingSuckz/fsb/internal/bot"
-	"EverythingSuckz/fsb/internal/cache"
-	"EverythingSuckz/fsb/internal/routes"
-	"EverythingSuckz/fsb/internal/types"
-	"EverythingSuckz/fsb/internal/utils"
-	"EverythingSuckz/fsb/internal/appmanager"
-	"fmt"
+	"errors"
+	"io"
+	"net"
 	"net/http"
-	"time"
+	"os"
+	"path/filepath"
+	"reflect"
+	"regexp"
+	"strconv"
+	"strings"
 
+	"github.com/joho/godotenv"
+	"github.com/kelseyhightower/envconfig"
 	"github.com/spf13/cobra"
-
-	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
-var runCmd = &cobra.Command{
-	Use:                "run",
-	Short:              "Run the bot with the given configuration.",
-	DisableSuggestions: false,
-	Run:                runApp,
+var ValueOf = &config{}
+
+type allowedUsers []int64
+
+func (au *allowedUsers) Decode(value string) error {
+	if value == "" {
+		return nil
+	}
+	ids := strings.Split(string(value), ",")
+	for _, id := range ids {
+		idInt, err := strconv.ParseInt(id, 10, 64)
+		if err != nil {
+			return err
+		}
+		*au = append(*au, idInt)
+	}
+	return nil
 }
 
-var startTime time.Time = time.Now()
+type config struct {
+	ApiID          int32        `envconfig:"API_ID" required:"true"`
+	ApiHash        string       `envconfig:"API_HASH" required:"true"`
+	BotToken       string       `envconfig:"BOT_TOKEN" required:"true"`
+	LogChannelID   int64        `envconfig:"LOG_CHANNEL" required:"true"`
+	Dev            bool         `envconfig:"DEV" default:"false"`
+	Port           int          `envconfig:"PORT" default:"8080"`
+	Host           string       `envconfig:"HOST" default:""`
+	HashLength     int          `envconfig:"HASH_LENGTH" default:"6"`
+	UseSessionFile bool         `envconfig:"USE_SESSION_FILE" default:"true"`
+	UserSession    string       `envconfig:"USER_SESSION"`
+	UsePublicIP    bool         `envconfig:"USE_PUBLIC_IP" default:"false"`
+	AllowedUsers   allowedUsers `envconfig:"ALLOWED_USERS"`
+	MultiTokens    []string
+	
+	// Firebase & App Setup
+	FirebaseCredsFile string       `envconfig:"FIREBASE_CREDS_FILE" default:"serviceAccountKey.json"`
 
-func runApp(cmd *cobra.Command, args []string) {
-	fmt.Println("TRACE: runApp started")
-	// initialize logger early so config loading is logged to file
-	utils.InitLogger(false)
-	config.Load(utils.Logger, cmd)
-	// reinitialize with correct dev mode
-	utils.InitLogger(config.ValueOf.Dev)
-	log := utils.Logger
-	mainLogger := log.Named("Main")
-	
-	fmt.Println("TRACE: Initializing router")
-	router := getRouter(log)
+	// stream specific config
+	StreamConcurrency int `envconfig:"STREAM_CONCURRENCY" default:"4"`
+	StreamBufferCount int `envconfig:"STREAM_BUFFER_COUNT" default:"8"`
+	StreamTimeoutSec  int `envconfig:"STREAM_TIMEOUT_SEC" default:"30"`
+	StreamMaxRetries  int `envconfig:"STREAM_MAX_RETRIES" default:"3"`
+}
 
-	fmt.Println("TRACE: Starting Telegram Bot Client")
-	mainBot, err := bot.StartClient(log)
-	if err != nil {
-		fmt.Println("CRITICAL BOT START ERROR:", err)
-		log.Sugar().Fatalf("Failed to start main bot: %v", err)
-	}
-	
-	fmt.Println("TRACE: Telegram Bot Client started successfully")
-	cache.InitCache(log)
-	
-	fmt.Println("TRACE: Starting workers")
-	workers, err := bot.StartWorkers(log)
-	if err != nil {
-		fmt.Println("CRITICAL WORKERS ERROR:", err)
-		log.Sugar().Fatalf("Failed to start workers: %v", err)
-	}
-	
-	fmt.Println("TRACE: Adding default client to workers")
-	workers.AddDefaultClient(mainBot, mainBot.Self)
-	
-	fmt.Println("TRACE: Starting UserBot")
-	bot.StartUserBot(log)
-	
-	fmt.Println("TRACE: Initializing Firebase")
-	appmanager.InitFirebase(log)
-	
-	fmt.Println("TRACE: Starting Cleanup Worker")
-	go appmanager.StartCleanupWorker(log)
+var botTokenRegex = regexp.MustCompile(`MULTI\_TOKEN\d+=(.*)`)
 
-	fmt.Println("TRACE: Running HTTP Router")
-	mainLogger.Info("Server started", zap.Int("port", config.ValueOf.Port))
-	err = router.Run(fmt.Sprintf(":%d", config.ValueOf.Port))
+func (c *config) loadFromEnvFile(log *zap.Logger) {
+	envPath := filepath.Clean("fsb.env")
+	log.Sugar().Infof("Trying to load ENV vars from %s", envPath)
+	err := godotenv.Load(envPath)
 	if err != nil {
-		fmt.Println("CRITICAL ROUTER RUN ERROR:", err)
-		mainLogger.Sugar().Fatalf("Server failed to start: %v", err)
+		if os.IsNotExist(err) {
+			log.Sugar().Errorf("ENV file not found: %s", envPath)
+			log.Sugar().Info("Please create fsb.env file")
+			log.Sugar().Info("For more info, refer: https://github.com/EverythingSuckz/TG-FileStreamBot/tree/golang#setting-up-things")
+			log.Sugar().Info("Please ignore this message if you are hosting it in a service like Heroku or other alternatives.")
+		} else {
+			log.Fatal("Unknown error while parsing env file.", zap.Error(err))
+		}
 	}
 }
 
-func getRouter(log *zap.Logger) *gin.Engine {
-	if config.ValueOf.Dev {
-		gin.SetMode(gin.DebugMode)
+func SetFlagsFromConfig(cmd *cobra.Command) {
+	cmd.Flags().Int32("api-id", ValueOf.ApiID, "Telegram API ID")
+	cmd.Flags().String("api-hash", ValueOf.ApiHash, "Telegram API Hash")
+	cmd.Flags().String("bot-token", ValueOf.BotToken, "Telegram Bot Token")
+	cmd.Flags().Int64("log-channel", ValueOf.LogChannelID, "Telegram Log Channel ID")
+	cmd.Flags().Bool("dev", ValueOf.Dev, "Enable development mode")
+	cmd.Flags().IntP("port", "p", ValueOf.Port, "Server port")
+	cmd.Flags().String("host", ValueOf.Host, "Server host that will be included in links")
+	cmd.Flags().Int("hash-length", ValueOf.HashLength, "Hash length in links")
+	cmd.Flags().Bool("use-session-file", ValueOf.UseSessionFile, "Use session files")
+	cmd.Flags().String("user-session", ValueOf.UserSession, "Pyrogram user session")
+	cmd.Flags().Bool("use-public-ip", ValueOf.UsePublicIP, "Use public IP instead of local IP")
+	cmd.Flags().String("multi-token-txt-file", "", "Multi token txt file (Not implemented)")
+	cmd.Flags().Int("stream-concurrency", ValueOf.StreamConcurrency, "Number of parallel block fetches")
+	cmd.Flags().Int("stream-buffer-count", ValueOf.StreamBufferCount, "Number of blocks to prefetch")
+	cmd.Flags().Int("stream-timeout-sec", ValueOf.StreamTimeoutSec, "Maximum time to wait for a single block (in seconds)")
+	cmd.Flags().Int("stream-max-retries", ValueOf.StreamMaxRetries, "Number of retry attempts for failed fetches")
+}
+
+func (c *config) loadConfigFromArgs(log *zap.Logger, cmd *cobra.Command) {
+	apiID, _ := cmd.Flags().GetInt32("api-id")
+	if apiID != 0 {
+		os.Setenv("API_ID", strconv.Itoa(int(apiID)))
+	}
+	apiHash, _ := cmd.Flags().GetString("api-hash")
+	if apiHash != "" {
+		os.Setenv("API_HASH", apiHash)
+	}
+	botToken, _ := cmd.Flags().GetString("bot-token")
+	if botToken != "" {
+		os.Setenv("BOT_TOKEN", botToken)
+	}
+	logChannelID, _ := cmd.Flags().GetString("log-channel")
+	if logChannelID != "" {
+		os.Setenv("LOG_CHANNEL", logChannelID)
+	}
+	dev, _ := cmd.Flags().GetBool("dev")
+	if dev {
+		os.Setenv("DEV", strconv.FormatBool(dev))
+	}
+	port, _ := cmd.Flags().GetInt("port")
+	if port != 0 {
+		os.Setenv("PORT", strconv.Itoa(port))
+	}
+	host, _ := cmd.Flags().GetString("host")
+	if host != "" {
+		os.Setenv("HOST", host)
+	}
+	hashLength, _ := cmd.Flags().GetInt("hash-length")
+	if hashLength != 0 {
+		os.Setenv("HASH_LENGTH", strconv.Itoa(hashLength))
+	}
+	useSessionFile, _ := cmd.Flags().GetBool("use-session-file")
+	if useSessionFile {
+		os.Setenv("USE_SESSION_FILE", strconv.FormatBool(useSessionFile))
+	}
+	userSession, _ := cmd.Flags().GetString("user-session")
+	if userSession != "" {
+		os.Setenv("USER_SESSION", userSession)
+	}
+	usePublicIP, _ := cmd.Flags().GetBool("use-public-ip")
+	if usePublicIP {
+		os.Setenv("USE_PUBLIC_IP", strconv.FormatBool(usePublicIP))
+	}
+	multiTokens, _ := cmd.Flags().GetString("multi-token-txt-file")
+	if multiTokens != "" {
+		os.Setenv("MULTI_TOKEN_TXT_FILE", multiTokens)
+		// TODO: Add support for importing tokens from a separate file
+	}
+	streamConcurrency, _ := cmd.Flags().GetInt("stream-concurrency")
+	if streamConcurrency != 0 {
+		os.Setenv("STREAM_CONCURRENCY", strconv.Itoa(streamConcurrency))
+	}
+	streamBufferCount, _ := cmd.Flags().GetInt("stream-buffer-count")
+	if streamBufferCount != 0 {
+		os.Setenv("STREAM_BUFFER_COUNT", strconv.Itoa(streamBufferCount))
+	}
+	streamTimeoutSec, _ := cmd.Flags().GetInt("stream-timeout-sec")
+	if streamTimeoutSec != 0 {
+		os.Setenv("STREAM_TIMEOUT_SEC", strconv.Itoa(streamTimeoutSec))
+	}
+	streamMaxRetries, _ := cmd.Flags().GetInt("stream-max-retries")
+	if streamMaxRetries != 0 {
+		os.Setenv("STREAM_MAX_RETRIES", strconv.Itoa(streamMaxRetries))
+	}
+}
+
+func (c *config) setupEnvVars(log *zap.Logger, cmd *cobra.Command) {
+	c.loadFromEnvFile(log)
+	c.loadConfigFromArgs(log, cmd)
+	err := envconfig.Process("", c)
+	if err != nil {
+		log.Fatal("Error while parsing env variables", zap.Error(err))
+	}
+
+	// মোবাইল কপি-পেস্টের কারণে আসা অদৃশ্য স্পেসগুলো অটো-ক্লিন করার জন্য
+	c.ApiHash = strings.TrimSpace(c.ApiHash)
+	c.BotToken = strings.TrimSpace(c.BotToken)
+
+	var ipBlocked bool
+	ip, err := getIP(c.UsePublicIP)
+	if err != nil {
+		log.Error("Error while getting IP", zap.Error(err))
+		ipBlocked = true
+	}
+	if c.Host == "" {
+		c.Host = "http://" + ip + ":" + strconv.Itoa(c.Port)
+		if c.UsePublicIP {
+			if ipBlocked {
+				log.Sugar().Warn("Can't get public IP, using local IP")
+			} else {
+				log.Sugar().Warn("You are using a public IP, please be aware of the security risks while exposing your IP to the internet.")
+				log.Sugar().Warn("Use 'HOST' variable to set a domain name")
+			}
+		}
+		log.Sugar().Info("HOST not set, automatically set to " + c.Host)
+	}
+	val := reflect.ValueOf(c).Elem()
+	for _, env := range os.Environ() {
+		if strings.HasPrefix(env, "MULTI_TOKEN") {
+			c.MultiTokens = append(c.MultiTokens, botTokenRegex.FindStringSubmatch(env)[1])
+		}
+	}
+	val.FieldByName("MultiTokens").Set(reflect.ValueOf(c.MultiTokens))
+}
+
+func Load(log *zap.Logger, cmd *cobra.Command) {
+	log = log.Named("Config")
+	defer log.Info("Loaded config")
+	ValueOf.setupEnvVars(log, cmd)
+	ValueOf.LogChannelID = int64(stripInt(log, int(ValueOf.LogChannelID)))
+	if ValueOf.HashLength == 0 {
+		log.Sugar().Info("HASH_LENGTH can't be 0, defaulting to 6")
+		ValueOf.HashLength = 6
+	}
+	if ValueOf.HashLength > 32 {
+		log.Sugar().Info("HASH_LENGTH can't be more than 32, changing to 32")
+		ValueOf.HashLength = 32
+	}
+	if ValueOf.HashLength < 5 {
+		log.Sugar().Info("HASH_LENGTH can't be less than 5, defaulting to 6")
+		ValueOf.HashLength = 6
+	}
+	if ValueOf.StreamConcurrency <= 0 {
+		log.Sugar().Info("STREAM_CONCURRENCY must be greater than 0, defaulting to 4")
+		ValueOf.StreamConcurrency = 4
+	}
+	if ValueOf.StreamBufferCount <= 0 {
+		log.Sugar().Info("STREAM_BUFFER_COUNT must be greater than 0, defaulting to 8")
+		ValueOf.StreamBufferCount = 8
+	}
+	if ValueOf.StreamTimeoutSec <= 0 {
+		log.Sugar().Info("STREAM_TIMEOUT_SEC must be greater than 0, defaulting to 30 seconds")
+		ValueOf.StreamTimeoutSec = 30
+	}
+	if ValueOf.StreamMaxRetries <= 0 {
+		log.Sugar().Info("STREAM_MAX_RETRIES must be greater than 0, defaulting to 3")
+		ValueOf.StreamMaxRetries = 3
+	}
+}
+
+func getIP(public bool) (string, error) {
+	var ip string
+	var err error
+	if public {
+		ip, err = GetPublicIP()
 	} else {
-		gin.SetMode(gin.ReleaseMode)
+		ip, err = getInternalIP()
 	}
-	router := gin.Default()
-	router.Use(gin.ErrorLogger())
-	router.GET("/", func(ctx *gin.Context) {
-		ctx.JSON(http.StatusOK, types.RootResponse{
-			Message: "Server is running.",
-			Ok:      true,
-			Uptime:  utils.TimeFormat(uint64(time.Since(startTime).Seconds())),
-			Version: versionString,
-		})
-	})
-	routes.Load(log, router)
-	return router
+	if ip == "" {
+		ip = "localhost"
+	}
+	if err != nil {
+		return "localhost", err
+	}
+	return ip, nil
+}
+
+// https://stackoverflow.com/a/23558495/15807350
+func getInternalIP() (string, error) {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		return "", errors.New("no internet connection")
+	}
+	defer conn.Close()
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	return localAddr.IP.String(), nil
+}
+
+func GetPublicIP() (string, error) {
+	resp, err := http.Get("https://api.ipify.org?format=text")
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	ip, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	if !checkIfIpAccessible(string(ip)) {
+		return string(ip), errors.New("PORT is blocked by firewall")
+	}
+	return string(ip), nil
+}
+
+func checkIfIpAccessible(ip string) bool {
+	conn, err := net.Dial("tcp", ip+":80")
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	return true
+}
+
+func stripInt(log *zap.Logger, a int) int {
+	strA := strconv.Itoa(abs(a))
+	lastDigits := strings.Replace(strA, "100", "", 1)
+	result, err := strconv.Atoi(lastDigits)
+	if err != nil {
+		log.Sugar().Fatalln(err)
+		return 0
+	}
+	return result
+}
+
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
 }
