@@ -174,6 +174,11 @@ func (c *config) setupEnvVars(log *zap.Logger, cmd *cobra.Command) {
 	if err != nil {
 		log.Fatal("Error while parsing env variables", zap.Error(err))
 	}
+
+	// মোবাইল কপি-পেস্টের কারণে আসা অদৃশ্য স্পেসগুলো অটো-ক্লিন করার জন্য
+	c.ApiHash = strings.TrimSpace(c.ApiHash)
+	c.BotToken = strings.TrimSpace(c.BotToken)
+
 	var ipBlocked bool
 	ip, err := getIP(c.UsePublicIP)
 	if err != nil {
