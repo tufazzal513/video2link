@@ -2,12 +2,12 @@ package main
 
 import (
 	"EverythingSuckz/fsb/config"
-	"EverythingSuckz/fsb/internal/appmanager"
 	"EverythingSuckz/fsb/internal/bot"
 	"EverythingSuckz/fsb/internal/cache"
 	"EverythingSuckz/fsb/internal/routes"
 	"EverythingSuckz/fsb/internal/types"
 	"EverythingSuckz/fsb/internal/utils"
+	"EverythingSuckz/fsb/internal/appmanager"
 	"fmt"
 	"net/http"
 	"time"
@@ -28,6 +28,7 @@ var runCmd = &cobra.Command{
 var startTime time.Time = time.Now()
 
 func runApp(cmd *cobra.Command, args []string) {
+	fmt.Println("TRACE: runApp started")
 	// initialize logger early so config loading is logged to file
 	utils.InitLogger(false)
 	config.Load(utils.Logger, cmd)
@@ -35,31 +36,44 @@ func runApp(cmd *cobra.Command, args []string) {
 	utils.InitLogger(config.ValueOf.Dev)
 	log := utils.Logger
 	mainLogger := log.Named("Main")
-	mainLogger.Info("Starting server")
+	
+	fmt.Println("TRACE: Initializing router")
 	router := getRouter(log)
 
+	fmt.Println("TRACE: Starting Telegram Bot Client")
 	mainBot, err := bot.StartClient(log)
 	if err != nil {
-		fmt.Println("CRITICAL BOT START ERROR:", err) // সরাসরি কনসোলে এরর প্রিন্ট করবে
+		fmt.Println("CRITICAL BOT START ERROR:", err)
 		log.Sugar().Fatalf("Failed to start main bot: %v", err)
 	}
+	
+	fmt.Println("TRACE: Telegram Bot Client started successfully")
 	cache.InitCache(log)
+	
+	fmt.Println("TRACE: Starting workers")
 	workers, err := bot.StartWorkers(log)
 	if err != nil {
+		fmt.Println("CRITICAL WORKERS ERROR:", err)
 		log.Sugar().Fatalf("Failed to start workers: %v", err)
 	}
+	
+	fmt.Println("TRACE: Adding default client to workers")
 	workers.AddDefaultClient(mainBot, mainBot.Self)
+	
+	fmt.Println("TRACE: Starting UserBot")
 	bot.StartUserBot(log)
 	
-	// Initialize Firebase Manager and run 7-Day Unverified accounts cleaner
+	fmt.Println("TRACE: Initializing Firebase")
 	appmanager.InitFirebase(log)
+	
+	fmt.Println("TRACE: Starting Cleanup Worker")
 	go appmanager.StartCleanupWorker(log)
 
+	fmt.Println("TRACE: Running HTTP Router")
 	mainLogger.Info("Server started", zap.Int("port", config.ValueOf.Port))
-	mainLogger.Info("File Stream Bot", zap.String("version", versionString))
-	mainLogger.Sugar().Infof("Server is running at %s", config.ValueOf.Host)
 	err = router.Run(fmt.Sprintf(":%d", config.ValueOf.Port))
 	if err != nil {
+		fmt.Println("CRITICAL ROUTER RUN ERROR:", err)
 		mainLogger.Sugar().Fatalf("Server failed to start: %v", err)
 	}
 }
