@@ -59,7 +59,10 @@ func InitFirebase(log *zap.Logger) {
 		credsFile := config.ValueOf.FirebaseCredsFile
 
 		opt := option.WithCredentialsFile(credsFile)
-		app, err := firebase.NewApp(ctx, nil, opt)
+		fbConfig := &firebase.Config{
+			ProjectID: "video2link",
+		}
+		app, err := firebase.NewApp(ctx, fbConfig, opt)
 		if err != nil {
 			fmt.Println("FIREBASE INIT ERROR:", err) // সরাসরি কনসোলে এরর প্রিন্ট করবে
 			log.Fatal("Failed to initialize Firebase App", zap.Error(err))
