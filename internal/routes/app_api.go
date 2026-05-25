@@ -3,7 +3,6 @@ package routes
 import (
 	"EverythingSuckz/fsb/internal/appmanager"
 	"EverythingSuckz/fsb/internal/bot"
-	"context"
 	"fmt"
 	"io"
 	"math/rand"
