@@ -16,7 +16,11 @@ FROM alpine:latest
 # ফায়ারবেস ও টেলিগ্রামের সিকিউরড কানেকশনের জন্য সার্টিফিকেট এবং টাইমজোন যুক্ত করা
 RUN apk --no-cache add ca-certificates tzdata
 
+WORKDIR /app
 COPY --from=builder /app/fsb /app/fsb
+
+# ফায়ারবেস সিক্রেট ফাইলটি ফাইনাল কন্টেইনারে কপি করা
+COPY firebase-adminsdk.json /app/firebase-adminsdk.json
 
 # হাগিং ফেসের সিকিউরিটি (User 1000) রাইট পারমিশনের জন্য
 RUN chmod -R 777 /app
