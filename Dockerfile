@@ -18,5 +18,8 @@ RUN apk --no-cache add ca-certificates tzdata
 
 COPY --from=builder /app/fsb /app/fsb
 
+# হাগিং ফেসের সিকিউরিটি (User 1000) রাইট পারমিশনের জন্য
+RUN chmod -R 777 /app
+
 # বটের রান (run) কম্যান্ডটি স্বয়ংক্রিয়ভাবে এক্সিকিউট করার জন্য
 ENTRYPOINT ["/app/fsb", "run"]
