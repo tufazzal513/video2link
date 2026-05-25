@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/firestore"
-	"github.com/github.com/gotd/td/telegram/uploader" // gotd-এর অফিসিয়াল আজীবন সচল আপলোডার
+	"github.com/gotd/td/telegram/uploader" // gotd-এর অফিশিয়াল আজীবন সচল আপলোডার (বানান সংশোধন)
 	"github.com/gin-gonic/gin"
 	"github.com/gotd/td/tg"
 	"go.uber.org/zap"
